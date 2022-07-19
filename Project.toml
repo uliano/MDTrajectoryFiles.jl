@@ -3,6 +3,10 @@ uuid = "e55597f1-1f81-4e61-9c07-9db33debcbd4"
 authors = ["Uliano Guerrini <uliano.guerrini@gmail.com> and contributors"]
 version = "0.1.0"
 
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
 [compat]
 julia = "1"
 
