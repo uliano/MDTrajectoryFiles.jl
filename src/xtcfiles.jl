@@ -409,7 +409,6 @@ end
     - time: frame time (ps)
     - coords: must be preallocated with dimension (3, natoms)
 """
-
 function write_xtc_frame(file::XtcFile, step::Integer, time::Real, box::AbstractMatrix{S}, 
                          coords::AbstractMatrix{T}) where {S, T <: Real}
     seekend(file.file)
