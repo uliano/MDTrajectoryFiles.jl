@@ -31,13 +31,13 @@ and stores the offsets to the frames for fast random access.
 
 - natoms::Int
 - nframes::Int
-- time::Vector{float32}(nframes)
+- time::Vector{Float32}(nframes)
 
 # Constructor
 
     XtcFile(name::AbstractString, mode::AbstractString)
 
-    mode is the usual string r,w,a
+mode is the usual string r,w,a
 """
 mutable struct XtcFile
     file::IOStream
@@ -405,9 +405,10 @@ end
 
 # Parameters
     - file: must be already opened for "w" or "a"
-    - step: integration step (or whatever)
+    - step: integration step 
     - time: frame time (ps)
-    - coords: must be preallocated with dimension (3, natoms)
+    - box: dimension (3, 3)
+    - coords: dimension (3, natoms)
 """
 function write_xtc_frame(file::XtcFile, step::Integer, time::Real, box::AbstractMatrix{S}, 
                          coords::AbstractMatrix{T}) where {S, T <: Real}
@@ -438,7 +439,7 @@ function write_xtc_atoms(file::IOStream, precision::Real, coords::AbstractMatrix
     if natoms <= 9
         for j in 1:3
             for atom in 1:natoms
-                write(file, hton(Float32(coords[i, atom])))
+                write(file, hton(Float32(coords[i, atom]) * 10))
             end
         end
     else
@@ -454,7 +455,7 @@ function write_xtc_atoms(file::IOStream, precision::Real, coords::AbstractMatrix
         mindiff = typemax(Int32)
         prevrun = -1
         for atom in 1:natoms
-            fc = ntuple(i->Float32(round(coords[i, atom] * precision)), 3)
+            fc = ntuple(i->Float32(round(coords[i, atom] * 10 * precision)), 3)
             if any(fc .> max_absolute_int )
                 seek(file, pos)
                 return false # scaling would cause overflow 
@@ -584,7 +585,7 @@ function read_xtc_box(file::XtcFile, frame::Integer, box::AbstractMatrix{T}) whe
     seek(file.file, file.offsets[frame])
     for i in 1:3
         for j in 1:3
-            box[i, j] = ntoh(read(file.file, Float32))
+            box[i, j] = T(ntoh(read(file.file, Float32)))
         end
     end
     return nothing
@@ -613,7 +614,7 @@ function read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}
     if size <= 9
         for j in 1:3
             for i in 1:size
-                coords[i, j] = ntoh(read(file.file, Float32))
+                coords[i, j] = ntoh(read(file.file, Float32)) / 10
             end
         end
     else
@@ -659,7 +660,7 @@ function read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}
                 is_smaller -= 1
             end
             if run == 0
-                coords[:, atom] .= thiscoord ./ precision 
+                coords[:, atom] .= thiscoord ./ (precision * 10) 
                 atom += 1
             else
                 prevcoord .= thiscoord
@@ -668,12 +669,12 @@ function read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}
                     thiscoord .+= prevcoord .- smallnum 
                     if k == 1 
                         thiscoord, prevcoord = prevcoord, thiscoord
-                        coords[:, atom] .= prevcoord ./ precision
+                        coords[:, atom] .= prevcoord ./ (precision * 10)
                         atom += 1
                     else
                         prevcoord .= thiscoord
                     end
-                        coords[:, atom] .= thiscoord ./ precision
+                        coords[:, atom] .= thiscoord ./ (precision * 10)
                     atom += 1
                 end
             end
@@ -695,11 +696,6 @@ function read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}
     return nothing      
 end
 
-"""
-    readxtc(filename) -> Array{Float32}(3, natoms, nframes)
-
-Reads all frames in a xtc trajectory files and returns coordinates.    
-"""
 function read_xtc_file(name)
     xtcfile = XtcFile(name, "r")
     coordinates = Array{Float32}(undef, 3, xtcfile.natoms, xtcfile.nframes)
