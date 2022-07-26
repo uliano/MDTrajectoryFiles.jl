@@ -65,7 +65,7 @@ end
 function show(io::IO, xf::XtcFile)
     result = "XtcFile(\"$(xf.filename)\" open for \"$(xf.mode)\" "
     result *= "$(xf.nframes) frames with $(xf.natoms) atoms each)"
-    println(io, result)
+    print(io, result)
 end
 
 function show(io::IO, buffer::BitBuffer) 
@@ -439,7 +439,7 @@ function write_xtc_atoms(file::IOStream, precision::Real, coords::AbstractMatrix
     if natoms <= 9
         for j in 1:3
             for atom in 1:natoms
-                write(file, hton(Float32(coords[i, atom]) * 10))
+                write(file, hton(Float32(coords[i, atom]) / 10)) # convert Å to nm
             end
         end
     else
@@ -450,12 +450,13 @@ function write_xtc_atoms(file::IOStream, precision::Real, coords::AbstractMatrix
         intcoords = Vector{SVector{3, Int32}}(undef, natoms)
         buffer = BitBuffer(natoms * 15)
         write(file, hton(Float32(precision)))
+        precision /= 10 # convert Å to nm
         minint .= typemax(Int32)
         maxint .= typemin(Int32)
         mindiff = typemax(Int32)
         prevrun = -1
         for atom in 1:natoms
-            fc = ntuple(i->Float32(round(coords[i, atom] * 10 * precision)), 3)
+            fc = ntuple(i->Float32(round(coords[i, atom] * precision)), 3)
             if any(fc .> max_absolute_int )
                 seek(file, pos)
                 return false # scaling would cause overflow 
@@ -614,11 +615,11 @@ function read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}
     if size <= 9
         for j in 1:3
             for i in 1:size
-                coords[i, j] = ntoh(read(file.file, Float32)) / 10
+                coords[i, j] = ntoh(read(file.file, Float32)) * 10 # convert nm to Å
             end
         end
     else
-        precision = ntoh(read(file.file, Float32))
+        precision = ntoh(read(file.file, Float32)) * 10 # convert nm to Å
         read!(file.file, minint)
         minint .= ntoh.(minint)
         read!(file.file, maxint)
@@ -660,7 +661,7 @@ function read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}
                 is_smaller -= 1
             end
             if run == 0
-                coords[:, atom] .= thiscoord ./ (precision * 10) 
+                coords[:, atom] .= thiscoord ./ precision 
                 atom += 1
             else
                 prevcoord .= thiscoord
@@ -669,12 +670,12 @@ function read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}
                     thiscoord .+= prevcoord .- smallnum 
                     if k == 1 
                         thiscoord, prevcoord = prevcoord, thiscoord
-                        coords[:, atom] .= prevcoord ./ (precision * 10)
+                        coords[:, atom] .= prevcoord ./ precision
                         atom += 1
                     else
                         prevcoord .= thiscoord
                     end
-                        coords[:, atom] .= thiscoord ./ (precision * 10)
+                        coords[:, atom] .= thiscoord ./ precision
                     atom += 1
                 end
             end

@@ -108,7 +108,7 @@ end
 function show(io::IO, dcdf::DcdFile)
     result = "DcdFile(\"$(dcdf.filename)\" open for \"$(dcdf.mode)\" "
     result *= "$(dcdf.nframes) frames with $(dcdf.natoms) atoms each)"
-    println(io, result)
+    print(io, result)
 end
 
 function readblocksize(file, blocksizetype, swapendian)
