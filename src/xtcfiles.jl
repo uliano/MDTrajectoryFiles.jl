@@ -619,7 +619,7 @@ function read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}
             end
         end
     else
-        precision = ntoh(read(file.file, Float32)) * 10 # convert nm to Å
+        precision = ntoh(read(file.file, Float32)) / 10 # convert nm to Å
         read!(file.file, minint)
         minint .= ntoh.(minint)
         read!(file.file, maxint)
