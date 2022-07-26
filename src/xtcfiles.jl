@@ -38,6 +38,10 @@ and stores the offsets to the frames for fast random access.
     XtcFile(name::AbstractString, mode::AbstractString)
 
 mode is the usual string r,w,a
+
+# Units
+- time: ps
+- distance: Å
 """
 mutable struct XtcFile
     file::IOStream
@@ -421,7 +425,7 @@ function write_xtc_frame(file::XtcFile, step::Integer, time::Real, box::Abstract
     write(file.file, hton(Float32(time)))
     for i in 1:3
         for j in 1:3
-            write(file.file, hton(convert(Float32, box[i, j])))
+            write(file.file, hton(convert(Float32, box[i, j] / 10))) # convert Å to nm
         end
     end
     # if step == 0
@@ -586,7 +590,7 @@ function read_xtc_box(file::XtcFile, frame::Integer, box::AbstractMatrix{T}) whe
     seek(file.file, file.offsets[frame])
     for i in 1:3
         for j in 1:3
-            box[i, j] = T(ntoh(read(file.file, Float32)))
+            box[i, j] = T(ntoh(read(file.file, Float32))) * 10 # convert nm to Å
         end
     end
     return nothing
