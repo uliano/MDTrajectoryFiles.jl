@@ -404,7 +404,7 @@ function read_xtc_header(file; skip_to_next=false)
 end
 
 """
-    write_xtc_frame(file::XtcFile, step::Integer, time::Real, box::AbstractMatrix{S}, 
+    write_frame(file::XtcFile, step::Integer, time::Real, box::AbstractMatrix{S}, 
                     coords::AbstractMatrix{T}) where {S, T <: Real}
 
 # Parameters
@@ -414,7 +414,7 @@ end
     - box: dimension (3, 3)
     - coords: dimension (3, natoms)
 """
-function write_xtc_frame(file::XtcFile, step::Integer, time::Real, box::AbstractMatrix{S}, 
+function write_frame(file::XtcFile, step::Integer, time::Real, box::AbstractMatrix{S}, 
                          coords::AbstractMatrix{T}) where {S, T <: Real}
     seekend(file.file)
     # pos = position(file.file)
@@ -441,8 +441,8 @@ function write_xtc_atoms(file::IOStream, precision::Real, coords::AbstractMatrix
     prev_atom = 0
     write(file, hton(Int32(natoms)))
     if natoms <= 9
-        for j in 1:3
-            for atom in 1:natoms
+        for atom in 1:natoms
+            for i in 1:3
                 write(file, hton(Float32(coords[i, atom]) / 10)) # convert Å to nm
             end
         end
@@ -579,14 +579,14 @@ function write_xtc_atoms(file::IOStream, precision::Real, coords::AbstractMatrix
 end
 
 """
-    read_xtc_box(file::XtcFile, frame::Integer, box::AbstractMatrix{T}) where {T <: Real}
+    read_box(file::XtcFile, frame::Integer, box::AbstractMatrix{T}) where {T <: Real}
 
 # Parameters
     - file: must be already opened for "r"
     - frame: must be in 1:nframes
     - box: must be preallocated with dimension (3, 3)
 """
-function read_xtc_box(file::XtcFile, frame::Integer, box::AbstractMatrix{T}) where {T <: Real}
+function read_box(file::XtcFile, frame::Integer, box::AbstractMatrix{T}) where {T <: Real}
     seek(file.file, file.offsets[frame])
     for i in 1:3
         for j in 1:3
@@ -597,7 +597,7 @@ function read_xtc_box(file::XtcFile, frame::Integer, box::AbstractMatrix{T}) whe
 end
 
 """
-    read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}) where {T <: Real}
+    read_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}) where {T <: Real}
 
 Reads atom coordinates for a frame.
     
@@ -606,7 +606,7 @@ Reads atom coordinates for a frame.
 - frame: must be in 1:nframes
 - coords: must be preallocated with dimension (3, natoms)
 """
-function read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}) where {T <: Real}
+function read_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}) where {T <: Real}
     local smallnum::Int
     local smaller::Int
     minint = MVector{3, Int32}(undef)
@@ -615,10 +615,10 @@ function read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}
     prevcoord = MVector{3, Int}(undef)
     FIRSTINDEX = 9
     seek(file.file, file.offsets[frame] + 36) # we don't read box here
-    size = ntoh(read(file.file, Int32))
-    if size <= 9
-        for j in 1:3
-            for i in 1:size
+    natoms = ntoh(read(file.file, Int32))
+    if natoms <= 9
+        for j in 1:natoms
+            for i in 1:3
                 coords[i, j] = ntoh(read(file.file, Float32)) * 10 # convert nm to Å
             end
         end
@@ -679,7 +679,136 @@ function read_xtc_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}
                     else
                         prevcoord .= thiscoord
                     end
-                        coords[:, atom] .= thiscoord ./ precision
+                    coords[:, atom] .= thiscoord ./ precision
+                    atom += 1
+                end
+            end
+            smallidx += is_smaller;
+            if is_smaller < 0
+                smallnum = smaller
+                if smallidx > FIRSTINDEX 
+                    smaller = magicints[smallidx] ÷ 2
+                else
+                    smaller = 0
+                end
+            elseif is_smaller > 0
+                smaller = smallnum
+                smallnum = magicints[smallidx + 1] ÷ 2
+            end
+            sizesmall = SA[magicints[smallidx + 1], magicints[smallidx + 1], magicints[smallidx + 1]]
+        end
+    end
+    return nothing      
+end
+
+"""
+    read_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}, selection::BitVector) where {T <: Real}
+
+Reads atom coordinates for a frame.
+    
+# Parameters
+- file: must be already opened for "r"
+- frame: must be in 1:nframes
+- coords: must be preallocated with dimension (3, count(selection))
+- selection: must have length = natoms
+"""
+function read_atoms(file::XtcFile, frame::Integer, coords::AbstractMatrix{T}, selection::BitVector) where {T <: Real}
+    local smallnum::Int
+    local smaller::Int
+    if length(selection) != file.natoms
+        error("selection does not match natoms")
+    end
+    lastselected = findlast(selection)
+    if count(selection) != size(coords)[2]
+        error("selection number and coords mismatch")
+    end
+    minint = MVector{3, Int32}(undef)
+    maxint = MVector{3, Int32}(undef)
+    thiscoord = MVector{3, Int}(undef)
+    prevcoord = MVector{3, Int}(undef)
+    FIRSTINDEX = 9
+    seek(file.file, file.offsets[frame] + 36) # we don't read box here
+    natoms = ntoh(read(file.file, Int32))
+    if natoms <= 9
+        kk = 1
+        for j in 1:natoms
+            if selection[j]
+                for i in 1:3
+                    coords[i, kk] = ntoh(read(file.file, Float32)) * 10 # convert nm to Å
+                end
+                kk += 1
+            else
+                skip(file.file, 12)
+            end
+        end
+    else
+        precision = ntoh(read(file.file, Float32)) / 10 # convert nm to Å
+        read!(file.file, minint)
+        minint .= ntoh.(minint)
+        read!(file.file, maxint)
+        maxint .= ntoh.(maxint)
+        small_idx = ntoh(read(file.file, Int32))
+        smallidx = Int(small_idx)
+        smaller = magicints[max(FIRSTINDEX, smallidx - 1) + 1] ÷ 2 
+        smallnum = magicints[smallidx + 1] ÷ 2 
+        sizesmall = SA[magicints[smallidx + 1], magicints[smallidx + 1], magicints[smallidx + 1]]
+        nbytes = ntoh(read(file.file, Int32))
+        buffer = BitBuffer(nbytes)
+        readbytes!(file.file, buffer.bits, nbytes)
+        sizeint = SA[maxint[1] - minint[1] + 1,
+                     maxint[2] - minint[2] + 1,
+                     maxint[3] - minint[3] + 1]
+        if any( sizeint .> 2^24-1)
+            bitsizeint = sizeofint.(sizeint)
+            bitsize = 0
+        else    
+            bitsize = sizeofints(sizeint)
+        end
+        atom = 1 
+        kk = 1
+        run = 0
+        while atom <= lastselected
+            if bitsize == 0
+                for i in 1:3
+                    thiscoord[i] = receivebits!(buffer, bitsizeint[i])
+                end
+            else
+                receiveints!(buffer, bitsize, sizeint, thiscoord)
+            end
+            thiscoord .+= minint
+            flag = receivebits!(buffer, 1)
+            is_smaller = 0
+            if flag == 1
+                run = receivebits!(buffer, 5)
+                is_smaller = run % 3
+                run -= is_smaller
+                is_smaller -= 1
+            end
+            if run == 0
+                if selection[atom]
+                    coords[:, kk] .= thiscoord ./ precision 
+                    kk += 1
+                end
+                atom += 1
+            else
+                prevcoord .= thiscoord
+                for k in 1:3:run
+                    receiveints!(buffer, smallidx, sizesmall, thiscoord)
+                    thiscoord .+= prevcoord .- smallnum 
+                    if k == 1 
+                        thiscoord, prevcoord = prevcoord, thiscoord
+                        if selection[atom]
+                            coords[:, kk] .= prevcoord ./ precision
+                            kk += 1
+                        end
+                        atom += 1
+                    else
+                        prevcoord .= thiscoord
+                    end
+                    if selection[atom]
+                        coords[:, kk] .= thiscoord ./ precision
+                        kk += 1
+                    end
                     atom += 1
                 end
             end
@@ -705,7 +834,7 @@ function read_xtc_file(name)
     xtcfile = XtcFile(name, "r")
     coordinates = Array{Float32}(undef, 3, xtcfile.natoms, xtcfile.nframes)
     for frame in 1:xtcfile.nframes
-        read_xtc_atoms(xtcfile, frame, view(coordinates, :, :, frame))
+        read_atoms(xtcfile, frame, view(coordinates, :, :, frame))
     end
     return coordinates
 end

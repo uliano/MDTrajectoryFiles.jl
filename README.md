@@ -2,13 +2,14 @@
 
 Aim of this package is to provide **low level** and **native** (in the sense of no foreign language dependency) Julia access to trajectory files. At the moment only XTC and DCD files are supported, other formats will eventually be implemented, Amber .nc and Desmond .dtr being next in line.
 
-API is really unstable and may evolve quickly. For each `struct XXXFile` handle the following methods are provided:
+API unstable and may evolve quickly. For each `struct XXXFile` handle the following methods are provided:
 
 ```julia
 XXXFile(filename, mode) # constructor
-read_XXX_atoms(handle::XXXFile, frame, AbstractArray(3, natoms))
-read_XXX_box(handle::XXXFile, frame, AbstractArray(XXX dependent))
-write_XXX_frame(handle::XXXFile, frame, box, atoms)
+read_atoms(handle::XXXFile, frame, AbstractArray(3, natoms))
+read_atoms(handle::XXXFile, frame, AbstractArray(3, natoms), selection::BitVector)
+read_box(handle::XXXFile, frame, AbstractArray(XXX dependent))
+write_frame(handle::XXXFile, frame, box, atoms)
 ```
 
 Also, among different `struct XXXFile`s, a few common proprieties are provided:
@@ -24,9 +25,13 @@ XXXFile.time::Vector{Float32}(nframes)
 - time: ps
 - distance: Å
 
-# XTC Files
+## File Handles
 
-Feature complete and blazingly fast (reads @ ~2x with respect to C implementation). 
+`XtcFile` Feature complete and blazingly fast (reads @ ~2x with respect to C implementation).
+
+`DcdFile` Reads and writes DCD files **without** fixed atoms (support may come in the future), 4th dimension is ignored. Due to the lack of standardization this needs more testing (at the moment only OpenMM and NAMD), you can help providing your datasets.
+
+## Examples
 
 ### Coordinates
 
@@ -94,77 +99,47 @@ julia> periodicbox
 julia> 
 ```
 
-# DCD Files
-
-Reads and writes DCD files **without** fixed atoms (support may come in the future), 4th dimension is ignored. Due to the lack of standardization this needs more testing (at the moment only OpenMM and NAMD), you can help providing your datasets.
-
-## Coordinates
+### Atom Selection
 
 ```julia
-julia> spam=DcdFile("/home/uliano/spam.dcd","r")
-DcdFile("/home/uliano/spam.dcd" open for "r" 10 frames with 5558 atoms each)
+julia> spam = XtcFile("/home/uliano/spam.xtc", "r")
+XtcFile("/home/uliano/spam.xtc" open for "r" 11 frames with 5558 atoms each)
 
-julia> coords=Array{Float32}(undef, 3, spam.natoms, spam.nframes);
+julia> selection = falses(spam.natoms);
 
-julia> for frame in 1:spam.nframes
-           read_dcd_atoms(spam, frame, view(coords, :, :, frame))
+julia> selection[10:20] .=true;
+
+julia> selection[30:40] .=true;
+
+julia> frames = falses(11);
+
+julia> frames[1:2:11] .= true;
+
+julia> coords = Array{Float64}(undef, 3, 22, 6);
+
+julia> k = 1;
+
+julia> for frame in 1:11
+           if frames[frame]
+               read_atoms(spam, frame, view(coords, :, :, k), selection)
+               k += 1
+           end
        end
 
 julia> coords
-3×5558×10 Array{Float32, 3}:
+3×22×6 Array{Float64, 3}:
 [:, :, 1] =
- 13.9547  14.6422  13.1881  14.6035  …   0.264754  19.7127    4.90919
- 18.9011  18.4144  19.3824  19.6031      6.32946   23.6911   21.4199
- 17.587   18.3115  18.2311  17.0208     13.831      8.78946  33.1622
+ 19.33  18.72  18.69  19.4   17.69  18.13  18.18  17.14  17.14  16.17  … 
+ 19.51  21.43  22.0   21.93  21.41  19.35  19.24  18.87  19.24  17.9     
+ 21.4   20.81  19.86  21.54  21.21  19.76  18.53  20.53  21.46  20.25    
 
 [:, :, 2] =
- 11.456   11.866   11.0812  12.3559  …   3.52806  20.7359   3.04038
- 18.0378  17.0576  18.5171  18.6206      2.65504  15.5784  19.7867
- 13.8721  14.197   14.8017  13.581      10.7042   13.2966  36.9427
+ 22.06  20.08  19.1   20.27  19.97  20.86  21.51  19.73  19.25  19.09  …
+ 22.98  22.23  22.23  21.16  22.98  24.1   25.11  24.12  23.25  25.25   
+ 16.96  16.74  17.26  16.5   15.92  18.18  17.97  18.89  18.94  19.53   
+
+;;; … 
 ```
-
-## Time vector
-
-```julia
-julia> spam.time
-10-element Vector{Float32}:
-  300.0
-  400.00003
-  500.00003
-  600.0
-  700.00006
-  800.00006
-  900.00006
- 1000.00006
- 1100.0
- 1200.0
-
-julia> 
-```
-
-## Unit Cell
-
-Due to the plethora of different implementation ([see here](https://github.com/MDAnalysis/mdanalysis/issues/187)), at the moment **no effort** is done to interpret these data but they are provided *as is*
-
-```julia
-julia> box = Vector(undef, 6);
-
-julia> box = Vector{Float64}(undef, 6);
-
-julia> read_dcd_box(spam, 1, box)
-
-julia> box
-6-element Vector{Float64}:
- 38.25117249723212
-  0.0
- 38.25117249723212
-  0.0
-  0.0
- 38.25117249723212
-
-julia>
-```
-
 
 
 

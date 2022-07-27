@@ -277,7 +277,7 @@ end
 
 
 """
-    read_dcd_atoms(file::DcdFile, frame::Integer, coords::AbstractMatrix{T}) where {T <: Real}
+    read_atoms(file::DcdFile, frame::Integer, coords::AbstractMatrix{T}) where {T <: Real}
 
 Reads atom coordinates for a frame.
     
@@ -286,7 +286,10 @@ Reads atom coordinates for a frame.
 - frame: must be in 1:nframes
 - coords: must be preallocated with dimension (3, natoms)
 """
-function read_dcd_atoms(file::DcdFile, frame::Integer, coords::AbstractMatrix{T}) where {T <: Real}
+function read_atoms(file::DcdFile, frame::Integer, coords::AbstractMatrix{T}) where {T <: Real}
+    if size(coords)[2] != file.natoms
+        error("coords does not match natoms.")
+    end
     buffer = Vector{Float32}(undef, file.natoms)
     offset = file.offsets[frame]
     blocksizetype = file.has64bitblocksize ? Int64 : Int32
@@ -312,16 +315,76 @@ function read_dcd_atoms(file::DcdFile, frame::Integer, coords::AbstractMatrix{T}
     return nothing
 end 
 
+"""
+    read_atoms(file::DcdFile, frame::Integer, coords::AbstractMatrix{T}, selection::BitVector) where {T <: Real}
+
+Reads atom coordinates for a frame.
+    
+# Parameters
+- file: must be already opened for "r"
+- frame: must be in 1:nframes
+- coords: must be preallocated with dimension (3, count(selection))
+- selection: must have length = natoms
+"""
+function read_atoms(file::DcdFile, frame::Integer, coords::AbstractMatrix{T}, selection::BitVector) where {T <: Real}
+    if length(selection) != file.natoms
+        error("selection does not match natoms")
+    end
+    first = findfirst(selection)
+    last = findlast(selection)
+    selsize = last - first + 1
+    if count(selection) != size(coords)[2]
+        error("selection number and coords mismatch")
+    end
+    buffer = Vector{Float32}(undef, selsize)
+    skipfirsts = 4 * (first - 1)
+    skiplasts = 4 * (file.natoms - last)
+    offset = file.offsets[frame]
+    blocksizetype = file.has64bitblocksize ? Int64 : Int32
+    if file.hasbox
+        offset += sizeof(blocksizetype) * 2 + 6 * 8
+    end
+    seek(file.file, offset)
+    for i in 1:3
+        blocksize = readblocksize(file.file, blocksizetype, file.swapendian)
+        if blocksize != file.natoms * 4
+            error("wrong number of coordinates.")
+        end
+        skip(file.file, skipfirsts)
+        read!(file.file, buffer)
+        skip(file.file, skiplasts)
+        k = 1
+        if file.swapendian
+            for j in 1:selsize
+                if selection[j + first - 1]
+                    coords[i, k] = T(bswap(buffer[j]))
+                    k += 1
+                end
+            end
+        else
+            for j in 1:selsize
+                if selection[j + first - 1]
+                    coords[i, k] = T(buffer[j])
+                    k += 1
+                end
+            end
+        end
+        if blocksize != readblocksize(file.file, blocksizetype, file.swapendian)
+            error("Block size mismatch.")
+        end
+    end
+    return nothing
+end 
 
 """
-    read_dcd_box(file::DcdFile, frame::Integer, box::AbstractVector{T}) where {T <: Real}
+    read_box(file::DcdFile, frame::Integer, box::AbstractVector{T}) where {T <: Real}
 
 # Parameters
     - file: must be already opened for "r"
     - frame: must be in 1:nframes
     - box: must be preallocated with dimension (6,)
 """
-function read_dcd_box(file::DcdFile, frame::Integer, box::AbstractVector{T}) where {T <: Real}
+function read_box(file::DcdFile, frame::Integer, box::AbstractVector{T}) where {T <: Real}
     seek(file.file, file.offsets[frame])
     blocksizetype = file.has64bitblocksize ? Int64 : Int32
     blocksize = readblocksize(file.file, blocksizetype, file.swapendian)
@@ -342,7 +405,7 @@ function read_dcd_box(file::DcdFile, frame::Integer, box::AbstractVector{T}) whe
 end
 
 """
-    write_dcd_frame(file::DcdFile, box::AbstractVector{S}, 
+    write_frame(file::DcdFile, box::AbstractVector{S}, 
                     coords::AbstractMatrix{T}) where {S, T <: Real}
 
 # Parameters
@@ -351,7 +414,7 @@ end
       parameter varies with the program and version
     - coords: must be preallocated with dimension (3, natoms)
 """
-function write_dcd_frame(file::DcdFile, box::AbstractVector{S}, coords::AbstractMatrix{T}) where{S, T <: Real}
+function write_frame(file::DcdFile, box::AbstractVector{S}, coords::AbstractMatrix{T}) where{S, T <: Real}
     buffer = Vector{Float32}(undef, file.natoms)
     boxbuffer = MVector{6, Float64}(undef)
     blocksize = Int32[6 * 8]
@@ -377,16 +440,11 @@ function write_dcd_frame(file::DcdFile, box::AbstractVector{S}, coords::Abstract
     return nothing
 end
 
-"""
-    read_dcd_file(filename) -> Array{Float32}(3, natoms, nframes)
-
-Reads all frames in a xtc trajectory files and returns coordinates.    
-"""
 function read_dcd_file(name)
     dcdfile = DcdFile(name, "r")
     coordinates = Array{Float32}(undef, 3, dcdfile.natoms, dcdfile.nframes)
     for frame in 1:dcdfile.nframes
-        read_dcd_atoms(dcdfile, frame, view(coordinates, :, :, frame))
+        read_atoms(dcdfile, frame, view(coordinates, :, :, frame))
     end
     return coordinates
 end
